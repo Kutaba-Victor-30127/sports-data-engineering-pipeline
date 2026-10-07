@@ -1,0 +1,73 @@
+version: 2
+
+models:
+
+  - name: dim_team
+    columns:
+      - name: team_id
+        data_tests:
+          - unique
+          - not_null
+
+      - name: team_name
+        data_tests:
+          - unique
+          - not_null
+
+
+  - name: dim_league
+    columns:
+      - name: league_id
+        data_tests:
+          - unique
+          - not_null
+
+      - name: league_name
+        data_tests:
+          - unique
+          - not_null
+
+
+  - name: dim_date
+    columns:
+      - name: date_id
+        data_tests:
+          - unique
+          - not_null
+
+
+  - name: fact_event_odds
+    columns:
+
+      - name: event_id
+        data_tests:
+          - unique
+          - not_null
+
+      - name: date_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_id
+
+      - name: league_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_league')
+                field: league_id
+
+      - name: home_team_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id
+
+      - name: away_team_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id

@@ -1,0 +1,100 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+
+        env:
+          POSTGRES_DB: sports_warehouse
+          POSTGRES_USER: sports_user
+          POSTGRES_PASSWORD: sports_password
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd "pg_isready -U sports_user -d sports_warehouse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Python tests
+        run: |
+          python -m pytest
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Create staging schema
+        env:
+          PGPASSWORD: sports_password
+        run: |
+          psql \
+            -h localhost \
+            -U sports_user \
+            -d sports_warehouse \
+            -f sql/create_staging.sql
+
+      - name: Load sample events
+        env:
+          PGPASSWORD: sports_password
+        run: |
+          psql \
+            -h localhost \
+            -U sports_user \
+            -d sports_warehouse \
+            -c "\copy staging.raw_events(event_id, sport, league, home_team, away_team, event_time, home_odds, draw_odds, away_odds) FROM 'data/raw/events.csv' WITH (FORMAT csv, HEADER true);"
+
+      - name: Create dbt profile
+        run: |
+          mkdir -p ~/.dbt
+
+          cat > ~/.dbt/profiles.yml <<EOF
+          sports_warehouse:
+            target: dev
+            outputs:
+              dev:
+                type: postgres
+                host: localhost
+                port: 5432
+                user: sports_user
+                password: sports_password
+                dbname: sports_warehouse
+                schema: analytics
+                threads: 4
+          EOF
+
+      - name: Run dbt build
+        run: |
+          dbt build \
+            --project-dir sports_warehouse \
+            --profiles-dir ~/.dbt

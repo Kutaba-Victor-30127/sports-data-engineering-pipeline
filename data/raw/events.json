@@ -1,0 +1,77 @@
+[
+  {
+    "event_id": 1,
+    "sport": "football",
+    "league": "Premier League",
+    "teams": {
+      "home": "Arsenal",
+      "away": "Chelsea"
+    },
+    "event_time": "2026-09-21T18:00:00",
+    "odds": {
+      "home": 1.85,
+      "draw": 3.40,
+      "away": 4.20
+    }
+  },
+  {
+    "event_id": 2,
+    "sport": "football",
+    "league": "La Liga",
+    "teams": {
+      "home": "Barcelona",
+      "away": "Valencia"
+    },
+    "event_time": "2026-09-21T20:00:00",
+    "odds": {
+      "home": 1.50,
+      "draw": 4.10,
+      "away": 6.50
+    }
+  },
+  {
+    "event_id": 3,
+    "sport": "football",
+    "league": "Serie A",
+    "teams": {
+      "home": "Inter",
+      "away": "Milan"
+    },
+    "event_time": "2026-09-22T19:45:00",
+    "odds": {
+      "home": 2.10,
+      "draw": 3.20,
+      "away": 3.50
+    }
+  },
+  {
+    "event_id": 4,
+    "sport": "football",
+    "league": "Bundesliga",
+    "teams": {
+      "home": "Bayern Munich",
+      "away": "Dortmund"
+    },
+    "event_time": "2026-09-22T18:30:00",
+    "odds": {
+      "home": 1.65,
+      "draw": 4.00,
+      "away": 5.10
+    }
+  },
+  {
+    "event_id": 5,
+    "sport": "football",
+    "league": "Premier League",
+    "teams": {
+      "home": "Liverpool",
+      "away": "Manchester City"
+    },
+    "event_time": "2026-09-23T20:00:00",
+    "odds": {
+      "home": 2.45,
+      "draw": 3.30,
+      "away": 2.80
+    }
+  }
+]

@@ -1,0 +1,26 @@
+# Python virtual environment
+.venv/
+
+# Environment variables / secrets
+.env
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# dbt generated files
+sports_warehouse/target/
+sports_warehouse/logs/
+sports_warehouse/dbt_packages/
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
