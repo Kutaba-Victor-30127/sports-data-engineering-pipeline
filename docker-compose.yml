@@ -3,23 +3,60 @@ services:
     image: postgres:16
     container_name: sports_postgres
 
-    environment: 
-      POSTGRES_DB: ${POSTGRES_DB} 
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
 
-    ports: 
-          - "${POSTGRES_PORT}:5432"
+    ports:
+      - "${POSTGRES_PORT}:5432"
 
     volumes:
-          - postgres_data:/var/lib/postgressql/data
-          - ./sql/create_staging.sql:/docker-entrypoint-initdb.d/create_staging.sql:ro
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/create_staging.sql:/docker-entrypoint-initdb.d/create_staging.sql:ro
 
     healthcheck:
-        test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-        interval: 5s
-        timeout: 5s
-        retries: 5
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+
+    container_name: sports_airflow
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/project/airflow/dags
+
+      PYTHONPATH: /opt/airflow/project
+
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+
+      AWS_REGION: ${AWS_REGION}
+      S3_BUCKET_NAME: ${S3_BUCKET_NAME}
+
+    volumes:
+      - ./:/opt/airflow/project
+      - "${AWS_CREDENTIALS_PATH}:/home/airflow/.aws:ro"
+
+    ports:
+      - "8082:8080"
+
+    command: standalone
+
 
 volumes:
- postgres_data:
+  postgres_data:

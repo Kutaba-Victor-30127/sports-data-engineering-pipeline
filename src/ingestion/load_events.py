@@ -1,3 +1,4 @@
+import logging
 from io import BytesIO
 
 import pandas as pd
@@ -7,6 +8,7 @@ from src.aws.s3_client import read_file_from_s3
 from src.database.connection import get_engine
 from src.validation.event_validator import validate_events 
 
+logger = logging.getLogger(__name__)
 
 S3_EVENTS_KEY = "raw/events/events.csv"
 
@@ -19,7 +21,10 @@ def load_events():
         parse_dates=["event_time"]
     )
 
-    print("Events loaded successfully from S3.")
+    logger.info(
+        "Loaded %s events from S3.",
+        len(df)
+    )
 
     validate_events(df)
 
@@ -46,13 +51,28 @@ def load_to_staging(df):
             text("SELECT COUNT(*) FROM staging.raw_events")
         ).scalar()
 
-        print(f"Pandas reports inserted rows: {inserted_rows}")
-        print(f"Rows inside transaction: {count}")
+        logger.info(
+            "Pandas inserted %s rows.",
+            inserted_rows
+        )
 
-    print(f"{len(df)} events loaded into staging.raw_events.")
+        logger.info(
+            "Rows in staging.raw_events: %s",
+            count
+        )
+
+    logger.info(
+        "%s events loaded into staging.raw_events.",
+        len(df)
+    )
 
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
+
     events = load_events()
-    load_to_staging(events)  
+    load_to_staging(events)

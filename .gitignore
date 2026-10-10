@@ -24,3 +24,5 @@ sports_warehouse/dbt_packages/
 # OS files
 .DS_Store
 Thumbs.db
+
+**/.user.yml

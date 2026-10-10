@@ -1,0 +1,10 @@
+FROM apache/airflow:3.3.2-python3.13
+
+USER airflow
+
+RUN pip install --no-cache-dir \
+    boto3 \
+    pandas \
+    psycopg2-binary \
+    python-dotenv \
+    dbt-postgres \
