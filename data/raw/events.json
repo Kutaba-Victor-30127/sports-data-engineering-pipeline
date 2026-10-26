@@ -9,10 +9,11 @@
     },
     "event_time": "2026-09-21T18:00:00",
     "odds": {
-      "home": 1.85,
+      "home": 1.95,
       "draw": 3.40,
       "away": 4.20
-    }
+    },
+    "source_updated_at": "2026-10-26T11:00:00Z"
   },
   {
     "event_id": 2,
@@ -27,7 +28,8 @@
       "home": 1.50,
       "draw": 4.10,
       "away": 6.50
-    }
+    },
+    "source_updated_at": "2026-10-26T10:00:00Z"
   },
   {
     "event_id": 3,
@@ -42,7 +44,8 @@
       "home": 2.10,
       "draw": 3.20,
       "away": 3.50
-    }
+    },
+    "source_updated_at": "2026-10-26T10:00:00Z"
   },
   {
     "event_id": 4,
@@ -57,7 +60,8 @@
       "home": 1.65,
       "draw": 4.00,
       "away": 5.10
-    }
+    },
+    "source_updated_at": "2026-10-26T10:00:00Z"
   },
   {
     "event_id": 5,
@@ -72,6 +76,7 @@
       "home": 2.45,
       "draw": 3.30,
       "away": 2.80
-    }
+    },
+    "source_updated_at": "2026-10-26T10:00:00Z"
   }
 ]

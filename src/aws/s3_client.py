@@ -5,6 +5,9 @@ from pathlib import Path
 import boto3
 from dotenv import load_dotenv
 
+from datetime import datetime, timezone
+from uuid import uuid4
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,21 +60,68 @@ def read_file_from_s3(s3_key):
     return response["Body"].read()
 
 
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+def upload_events_batch(batch_id=None, ingestion_date=None):
+    batch_id = batch_id or str(uuid4())
+
+    ingestion_date = (ingestion_date
+                    or datetime.now(timezone.utc).date().isoformat()
+                    )
+
+    prefix = (
+        f"raw/events/"
+        f"ingestion_date={ingestion_date}/"
+        f"batch_id={batch_id}/"
     )
+
+    csv_key = f"{prefix}events.csv"
+    json_key = f"{prefix}events.json"
 
     events_csv = PROJECT_ROOT / "data" / "raw" / "events.csv"
     events_json = PROJECT_ROOT / "data" / "raw" / "events.json"
 
     upload_file_to_s3(
         events_csv,
-        "raw/events/events.csv"
+        csv_key
     )
 
     upload_file_to_s3(
         events_json,
-        "raw/events/events.json"
+        json_key
+    )
+
+    logger.info(
+        "Created immutable raw batch %s",
+        batch_id
+    )
+
+    logger.info(
+        "CSV key: %s",
+        csv_key
+    )
+
+    logger.info(
+        "JSON key: %s",
+        json_key
+    )
+
+    return {
+        "batch_id": batch_id,
+        "ingestion_date": ingestion_date,
+        "csv_key": csv_key,
+        "json_key": json_key,
+    }
+
+
+
+if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    )
+
+    batch = upload_events_batch()
+
+    logger.info(
+        "Batch ready for processing: %s",
+        batch
     )

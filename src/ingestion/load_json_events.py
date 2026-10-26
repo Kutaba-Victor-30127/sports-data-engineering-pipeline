@@ -9,11 +9,9 @@ from src.validation.event_validator import validate_events
 
 logger = logging.getLogger(__name__)
 
-S3_JSON_KEY = "raw/events/events.json"
 
-
-def load_json_events():
-    file_content = read_file_from_s3(S3_JSON_KEY)
+def load_json_events(s3_key):
+    file_content = read_file_from_s3(s3_key)
 
     data = json.loads(
         file_content.decode("utf-8")
@@ -23,7 +21,7 @@ def load_json_events():
 
     df = df.rename(
         columns={
-             "teams.home": "home_team",
+            "teams.home": "home_team",
             "teams.away": "away_team",
             "odds.home": "home_odds",
             "odds.draw": "draw_odds",
@@ -31,7 +29,15 @@ def load_json_events():
         }
     )
 
-    df["event_time"] = pd.to_datetime(df["event_time"])
+    df["source_updated_at"] = pd.to_datetime(
+        df["source_updated_at"],
+        utc=True
+    )
+
+    df["source_updated_at"] = pd.to_datetime(
+        df["source_updated_at"],
+        utc=True
+    )
 
     validate_events(df)
 
@@ -41,13 +47,4 @@ def load_json_events():
     )
 
     return df
-
-
-if __name__ == "__main__":
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
-    )
-
-    load_json_events()
     

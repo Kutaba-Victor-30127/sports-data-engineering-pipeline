@@ -45,10 +45,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Python tests
-        run: |
-          python -m pytest
-
       - name: Install PostgreSQL client
         run: |
           sudo apt-get update
@@ -64,6 +60,16 @@ jobs:
             -d sports_warehouse \
             -f sql/create_staging.sql
 
+      - name: Run Python tests
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: sports_warehouse
+          POSTGRES_USER: sports_user
+          POSTGRES_PASSWORD: sports_password
+        run: |
+          python -m pytest -v
+
       - name: Load sample events
         env:
           PGPASSWORD: sports_password
@@ -72,7 +78,7 @@ jobs:
             -h localhost \
             -U sports_user \
             -d sports_warehouse \
-            -c "\copy staging.raw_events(event_id, sport, league, home_team, away_team, event_time, home_odds, draw_odds, away_odds) FROM 'data/raw/events.csv' WITH (FORMAT csv, HEADER true);"
+            -c "\copy staging.raw_events(event_id, sport, league, home_team, away_team, event_time, home_odds, draw_odds, away_odds, source_updated_at) FROM 'data/raw/events.csv' WITH (FORMAT csv, HEADER true);"
 
       - name: Create dbt profile
         run: |

@@ -10,6 +10,14 @@ CREATE TABLE IF NOT EXISTS  staging.raw_events(
     home_odds DECIMAL(10, 2) NOT NULL,
     draw_odds DECIMAL(10, 2) NOT NULL,
     away_odds DECIMAL(10, 2) NOT NULL,
-    loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+
+    loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    source_file Text,
+    batch_id Text,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    source_updated_at TIMESTAMPTZ,
+
+    CONSTRAINT uq_raw_events_event_id UNIQUE (event_id)
 );  
 

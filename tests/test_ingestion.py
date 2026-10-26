@@ -16,7 +16,11 @@ def create_valid_events():
         ]),
         "home_odds": [1.85, 1.50],
         "draw_odds": [3.40, 4.10],
-        "away_odds": [4.20, 6.50]
+        "away_odds": [4.20, 6.50],
+        "source_updated_at": pd.to_datetime([
+        "2026-10-26T10:00:00Z",
+        "2026-10-26T10:00:00Z"
+        ], utc=True)
     })
 
 def test_valid_events_pass_validation():
@@ -34,5 +38,16 @@ def test_negative_home_odds_are_rejected():
         match="home_odds must be positive"
     ):
 
+        validate_events(df)
+
+def test_missing_source_updated_at_is_rejected():
+    df = create_valid_events()
+
+    df.loc[0, "source_updated_at"] = pd.NaT
+
+    with pytest.raises(
+        ValueError,
+        match="source_updated_at cannot be null"
+    ):
         validate_events(df)
 

@@ -7,7 +7,8 @@ REQUIRED_COLUMNS = [
     "event_time",
     "home_odds",
     "draw_odds",
-    "away_odds"
+    "away_odds",
+    "source_updated_at"
 ]
 
 def validate_events(df):
@@ -26,7 +27,7 @@ def validate_events(df):
         raise ValueError("event_id cannot be null")
 
     if df["event_id"].duplicated().any():
-        raise ValueError("event_if must be unique")
+        raise ValueError("event_id must be unique")
 
     if df["home_team"].isnull().any():
         raise ValueError("home_team cannot be null")
@@ -42,5 +43,8 @@ def validate_events(df):
 
     if (df["away_odds"] <= 0).any():
         raise ValueError("away_odds must be positive")
+
+    if df["source_updated_at"].isnull().any():
+        raise ValueError("source_updated_at cannot be null")
 
     print("Data validation passed.")
