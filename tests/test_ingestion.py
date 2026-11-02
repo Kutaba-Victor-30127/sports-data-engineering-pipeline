@@ -1,7 +1,10 @@
 import pandas as pd
 import pytest
 
-from src.validation.event_validator import validate_events
+from src.validation.event_validator import (
+    partition_events,
+    validate_events,
+)
 
 def create_valid_events():
     return pd.DataFrame({
@@ -51,3 +54,36 @@ def test_missing_source_updated_at_is_rejected():
     ):
         validate_events(df)
 
+
+def test_non_numeric_home_odds_are_rejected():
+    df = create_valid_events()
+
+    df["home_odds"] = df["home_odds"].astype("object")
+    df.loc[0, "home_odds"] = "not-a-number"
+
+    valid_df, rejected_df = partition_events(df)
+
+    assert len(valid_df) == 1
+    assert len(rejected_df) == 1
+
+    assert (
+        rejected_df.iloc[0]["rejection_reason"]
+        == "home_odds must be positive"
+    )
+
+
+def test_invalid_source_updated_at_is_rejected():
+    df = create_valid_events()
+
+    df["source_updated_at"] = df["source_updated_at"].astype("object")
+    df.loc[0, "source_updated_at"] = "not-a-timestamp"
+
+    valid_df, rejected_df = partition_events(df)
+
+    assert len(valid_df) == 1
+    assert len(rejected_df) == 1
+
+    assert (
+        rejected_df.iloc[0]["rejection_reason"]
+        == "source_updated_at cannot be null or invalid"
+    )

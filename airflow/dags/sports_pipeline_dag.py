@@ -37,17 +37,10 @@ with DAG(
 
     @task
     def load_batch_to_postgres(batch):
-        from src.ingestion.load_events import (
-            load_events,
-            load_to_staging,
-        )
+        from src.ingestion.run_batch import run_batch
 
-        events = load_events(
-            s3_key=batch["csv_key"],
-            batch_id=batch["batch_id"],
-        )
+        run_batch(batch=batch)
 
-        load_to_staging(events)
 
     batch = upload_raw_batch()
 

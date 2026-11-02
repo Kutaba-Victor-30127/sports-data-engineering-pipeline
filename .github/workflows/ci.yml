@@ -50,7 +50,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
-      - name: Create staging schema
+      - name: Create database schemas
         env:
           PGPASSWORD: sports_password
         run: |
@@ -58,7 +58,22 @@ jobs:
             -h localhost \
             -U sports_user \
             -d sports_warehouse \
+            -v ON_ERROR_STOP=1 \
             -f sql/create_staging.sql
+
+          psql \
+            -h localhost \
+            -U sports_user \
+            -d sports_warehouse \
+            -v ON_ERROR_STOP=1 \
+            -f sql/004_pipeline_runs.sql
+
+          psql \
+            -h localhost \
+            -U sports_user \
+            -d sports_warehouse \
+            -v ON_ERROR_STOP=1 \
+            -f sql/005_pipeline_run_attempts.sql
 
       - name: Run Python tests
         env:

@@ -60,12 +60,33 @@ def read_file_from_s3(s3_key):
     return response["Body"].read()
 
 
-def upload_events_batch(batch_id=None, ingestion_date=None):
+def upload_text_to_s3(content, s3_key, content_type="application/json"):
+    s3 = get_s3_client()
+
+    s3.put_object(
+        Bucket=S3_BUCKET_NAME,
+        Key=s3_key,
+        Body=content.encode("utf-8"),
+        ContentType=content_type,
+    )
+
+    logger.info(
+        "Uploaded quarantine data to s3://%s/%s",
+        S3_BUCKET_NAME,
+        s3_key,
+    )
+
+
+def create_batch_metadata(
+    batch_id=None,
+    ingestion_date=None
+):
     batch_id = batch_id or str(uuid4())
 
-    ingestion_date = (ingestion_date
-                    or datetime.now(timezone.utc).date().isoformat()
-                    )
+    ingestion_date = (
+        ingestion_date
+        or datetime.now(timezone.utc).date().isoformat()
+    )
 
     prefix = (
         f"raw/events/"
@@ -73,8 +94,23 @@ def upload_events_batch(batch_id=None, ingestion_date=None):
         f"batch_id={batch_id}/"
     )
 
-    csv_key = f"{prefix}events.csv"
-    json_key = f"{prefix}events.json"
+    return {
+        "batch_id": batch_id,
+        "ingestion_date": ingestion_date,
+        "csv_key": f"{prefix}events.csv",
+        "json_key": f"{prefix}events.json",
+    }
+
+
+def upload_events_batch(batch_id=None, ingestion_date=None):
+    batch = create_batch_metadata(
+        batch_id=batch_id,
+        ingestion_date=ingestion_date
+    )
+
+    batch_id = batch["batch_id"]
+    csv_key = batch["csv_key"]
+    json_key = batch["json_key"]
 
     events_csv = PROJECT_ROOT / "data" / "raw" / "events.csv"
     events_json = PROJECT_ROOT / "data" / "raw" / "events.json"
@@ -104,12 +140,7 @@ def upload_events_batch(batch_id=None, ingestion_date=None):
         json_key
     )
 
-    return {
-        "batch_id": batch_id,
-        "ingestion_date": ingestion_date,
-        "csv_key": csv_key,
-        "json_key": json_key,
-    }
+    return batch
 
 
 

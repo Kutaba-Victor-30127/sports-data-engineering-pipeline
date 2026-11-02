@@ -4,38 +4,95 @@ from datetime import datetime, timezone
 from io import BytesIO
 
 import pandas as pd
-from sqlalchemy import MetaData, Table, func, or_, select
+from sqlalchemy import (
+    MetaData,
+    Table,
+    func,
+    or_,
+    select,
+    text,
+)
+
 from sqlalchemy.dialects.postgresql import insert
 
-from src.aws.s3_client import read_file_from_s3
+from src.aws.s3_client import (
+    read_file_from_s3,
+    upload_text_to_s3,
+)
 from src.database.connection import get_engine
-from src.validation.event_validator import validate_events
+from src.validation.event_validator import partition_events
 
 
 logger = logging.getLogger(__name__)
 
 
-def load_events(s3_key, batch_id):
+def load_events(
+    s3_key,
+    batch_id,
+    on_counts=None
+):
     file_content = read_file_from_s3(s3_key)
 
     df = pd.read_csv(
-        BytesIO(file_content),
-        parse_dates=[
-            "event_time",
-            "source_updated_at",
-        ],
+    BytesIO(file_content)
     )
+
+    if on_counts is not None:
+        on_counts(
+            source_row_count=len(df)
+        )
 
     logger.info(
         "Loaded %s events from S3.",
         len(df),
     )
 
-    validate_events(df)
-
     df["source_file"] = s3_key
     df["batch_id"] = batch_id
     df["ingested_at"] = datetime.now(timezone.utc)
+
+    valid_df, rejected_df = partition_events(df)
+
+    if on_counts is not None:
+        on_counts(
+            source_row_count=len(df),
+            valid_row_count=len(valid_df),
+            rejected_row_count=len(rejected_df),
+        )
+
+    logger.info(
+        "Validation result: %s valid, %s rejected.",
+        len(valid_df),
+        len(rejected_df),
+    )
+
+    if not rejected_df.empty:
+        batch_path = (
+            s3_key
+            .removeprefix("raw/events/")
+            .rsplit("/", 1)[0]
+        )
+
+        rejected_key = (
+            f"rejected/events/{batch_path}/rejected.json"
+        )
+
+        rejected_json = rejected_df.to_json(
+            orient="records",
+            date_format="iso",
+            indent=2,
+        )
+
+        upload_text_to_s3(
+            rejected_json,
+            rejected_key
+        )
+
+        logger.warning(
+            "%s rejected records written to %s.",
+            len(rejected_df),
+            rejected_key,
+        )
 
     logger.info(
         "Prepared batch %s from %s.",
@@ -43,11 +100,30 @@ def load_events(s3_key, batch_id):
         s3_key,
     )
 
-    return df
+    return valid_df, rejected_df
 
 
-def load_to_staging(df):
-    engine = get_engine()
+def load_to_staging(
+    df,
+    connection=None
+    ):
+    if df.empty:
+        logger.warning(
+            "No valid records to load into staging."
+        )
+
+        return {
+            "inserted_count": 0,
+            "updated_count": 0,
+            "ignored_count": 0,
+        }
+
+    if connection is None:
+        with get_engine().begin() as connection:
+            return load_to_staging(
+                df,
+                connection,
+            )
 
     metadata = MetaData()
 
@@ -55,7 +131,7 @@ def load_to_staging(df):
         "raw_events",
         metadata,
         schema="staging",
-        autoload_with=engine,
+        autoload_with=connection,
     )
 
     records = df.to_dict(orient="records")
@@ -87,27 +163,92 @@ def load_to_staging(df):
         where=source_is_newer,
     )
 
-    with engine.begin() as connection:
-        result = connection.execute(
-            upsert_stmt,
-            records,
+    connection.execute(
+        text(
+            "LOCK TABLE staging.raw_events "
+            "IN SHARE ROW EXCLUSIVE MODE"
+        )
+    )
+
+    existing_rows = connection.execute(
+        select(
+            raw_events.c.event_id,
+            raw_events.c.source_updated_at,
+        ).where(
+            raw_events.c.event_id.in_(
+                df["event_id"].tolist()
+            )
+        )
+    ).all()
+
+    existing_versions = {
+        row.event_id: row.source_updated_at
+        for row in existing_rows
+    }
+
+    inserted_count = 0
+    updated_count = 0
+
+    for record in records:
+        event_id = record["event_id"]
+
+        incoming_version = pd.Timestamp(
+            record["source_updated_at"]
         )
 
-        count = connection.execute(
-            select(func.count()).select_from(raw_events)
-        ).scalar_one()
+        if event_id not in existing_versions:
+            inserted_count += 1
+            continue
 
-        logger.info(
-            "Rows inserted or updated: %s",
-            result.rowcount,
+        existing_version = existing_versions[
+            event_id
+        ]
+
+        if (
+            existing_version is None
+            or incoming_version
+            > pd.Timestamp(existing_version)
+        ):
+            updated_count += 1
+
+    connection.execute(
+        upsert_stmt,
+        records,
+    )
+
+    ignored_count = (
+        len(records)
+        - inserted_count
+        - updated_count
+    )
+
+    count = connection.execute(
+        select(func.count()).select_from(
+            raw_events
         )
+    ).scalar_one()
 
-        logger.info(
-            "Total rows in staging.raw_events: %s",
-            count,
-        )
+    logger.info(
+        "Inserted: %s, updated: %s, ignored: %s.",
+        inserted_count,
+        updated_count,
+        ignored_count,
+    )
 
-    logger.info("Batch processed successfully.")
+    logger.info(
+        "Total rows in staging.raw_events: %s",
+        count,
+    )
+
+    logger.info(
+        "Batch processed successfully."
+    )
+
+    return {
+        "inserted_count": inserted_count,
+        "updated_count": updated_count,
+        "ignored_count": ignored_count,
+    }
 
 
 def parse_args():
@@ -140,9 +281,11 @@ if __name__ == "__main__":
 
     args = parse_args()
 
-    events = load_events(
-        s3_key=args.s3_key,
-        batch_id=args.batch_id,
-    )
+    from src.ingestion.run_batch import run_batch
 
-    load_to_staging(events)
+    run_batch(
+        batch={
+            "batch_id": args.batch_id,
+            "csv_key": args.s3_key,
+        }
+    )
