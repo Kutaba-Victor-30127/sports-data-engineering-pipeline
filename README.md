@@ -2,223 +2,274 @@
 
 [![CI Pipeline](https://github.com/Kutaba-Victor-30127/sports-data-engineering-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/Kutaba-Victor-30127/sports-data-engineering-pipeline/actions)
 
-End-to-end data engineering pipeline built with **Python, AWS S3, PostgreSQL, dbt, Apache Airflow, Docker and GitHub Actions**.
+End-to-end data engineering pipeline built with **Python, AWS S3, PostgreSQL, dbt, Apache Airflow, Docker, pytest and GitHub Actions**.
 
-The project processes both structured CSV and semi-structured JSON sports event data, stores raw files in Amazon S3, validates and loads data into PostgreSQL, transforms it into a dimensional warehouse with dbt, and orchestrates the complete workflow with Apache Airflow.
-
----
+The project ingests structured CSV and semi-structured JSON sports-event data, stores immutable raw batches in Amazon S3, validates and quarantines bad records, performs replay-safe incremental UPSERTs into PostgreSQL, builds a dimensional warehouse with dbt, and tracks batch-level execution metrics.
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    A[CSV / JSON Sources] --> B[Python + boto3]
-    B --> C[Amazon S3 Raw Layer]
+    A[CSV / JSON Sources] --> B[Batch Metadata]
+    B --> C[Immutable Amazon S3 Raw Layer]
 
-    C --> D[Pandas Processing]
-    D --> E[Data Validation]
-    E --> F[PostgreSQL Staging]
+    C --> D[Python / Pandas Validation]
 
-    F --> G[dbt Transformations]
+    D -->|Valid records| E[PostgreSQL Staging]
+    D -->|Invalid records| Q[S3 Quarantine]
 
-    G --> H[dim_team]
-    G --> I[dim_league]
-    G --> J[dim_date]
-    G --> K[fact_event_odds]
+    E --> F[dbt Transformations]
 
-    L[Apache Airflow] --> B
-    L --> D
-    L --> G
+    F --> G[dim_team]
+    F --> H[dim_league]
+    F --> I[dim_date]
+    F --> J[fact_event_odds]
 
-    M[GitHub Actions] --> N[pytest]
-    M --> O[Temporary PostgreSQL]
-    M --> P[dbt build]
+    K[ops.pipeline_runs] --> L[Batch Observability]
+
+    M[Apache Airflow] --> B
+    M --> D
+    M --> F
+
+    N[GitHub Actions] --> O[pytest]
+    N --> P[PostgreSQL]
+    N --> R[dbt build]
 ```
 
-### Pipeline Flow
+## Key Engineering Features
 
-```text
-CSV + JSON
-    ↓
-Python / boto3
-    ↓
-Amazon S3
-Raw Layer
-    ↓
-Pandas
-    ↓
-Data Validation
-    ↓
-PostgreSQL
-staging.raw_events
-    ↓
-dbt
-    ↓
-Analytics Warehouse
-    ├── dim_team
-    ├── dim_league
-    ├── dim_date
-    └── fact_event_odds
-```
-
----
+- Immutable S3 ingestion batches partitioned by `ingestion_date` and `batch_id`
+- Incremental PostgreSQL ingestion using `INSERT ... ON CONFLICT DO UPDATE`
+- Version-aware UPSERTs using `source_updated_at`
+- Replay-safe and idempotent ingestion
+- Row-level data validation and S3 quarantine
+- Centralized event data contract
+- Batch-level observability with `run_id`, row counts and execution status
+- SUCCESS / FAILED execution tracking with error messages
+- Apache Airflow orchestration with retries and task dependencies
+- Dimensional warehouse built with dbt
+- Automated Python and dbt data-quality tests
+- Dockerized local infrastructure
+- GitHub Actions CI with clean PostgreSQL provisioning
 
 ## Tech Stack
 
 | Area | Technologies |
 |---|---|
 | Language | Python |
-| Cloud | AWS S3 |
-| AWS SDK | boto3 |
 | Data Processing | Pandas |
+| Cloud Storage | AWS S3 |
+| AWS SDK | boto3 |
 | Database | PostgreSQL |
 | Database Access | SQLAlchemy, psycopg2 |
 | Transformations | dbt |
 | Orchestration | Apache Airflow |
 | Containerization | Docker, Docker Compose |
 | Testing | pytest, dbt tests |
-| CI | GitHub Actions |
+| CI/CD | GitHub Actions |
 | Version Control | Git, GitHub |
 
----
+## Immutable S3 Raw Layer
 
-## 1. AWS S3 Raw Layer
-
-The pipeline supports two source formats:
-
-- structured CSV data
-- semi-structured JSON data
-
-Python and `boto3` upload the files to Amazon S3:
+Every ingestion creates a unique batch:
 
 ```text
-raw/events/events.csv
-raw/events/events.json
+raw/events/
+└── ingestion_date=2026-11-02/
+    └── batch_id=<UUID>/
+        ├── events.csv
+        └── events.json
 ```
 
-S3 acts as the raw data layer and preserves the original source files before downstream processing.
+The batch metadata contains:
+
+```text
+batch_id
+ingestion_date
+csv_key
+json_key
+```
+
+`batch_id` identifies the source batch, while each processing attempt receives its own `run_id`.
+
+This separation allows the same raw batch to be replayed multiple times without losing execution history.
 
 ### S3 Raw Data
 
 ![S3 raw events](docs/s3-raw-events.png)
 
----
+## Incremental and Replay-Safe Ingestion
 
-## 2. Semi-Structured JSON Processing
-
-The JSON input contains nested structures such as:
-
-```json
-{
-  "teams": {
-    "home": "Arsenal",
-    "away": "Chelsea"
-  },
-  "odds": {
-    "home": 1.85,
-    "draw": 3.40,
-    "away": 4.20
-  }
-}
-```
-
-The ingestion layer converts the nested structure into an analytics-friendly DataFrame:
-
-```text
-S3 JSON
-   ↓
-json.loads()
-   ↓
-pandas.json_normalize()
-   ↓
-DataFrame
-```
-
-Nested fields are normalized into columns such as:
-
-```text
-home_team
-away_team
-home_odds
-draw_odds
-away_odds
-```
-
----
-
-## 3. Data Validation
-
-Before loading data downstream, Python validation rules verify data quality.
-
-The validation layer checks conditions such as:
-
-- required columns are present
-- required values are not null
-- betting odds are positive
-- source records follow the expected schema
-
-Invalid records raise an exception and stop the pipeline before bad data reaches the warehouse.
-
----
-
-## 4. PostgreSQL Staging Layer
-
-Validated event data is loaded into:
+Validated records are loaded into:
 
 ```text
 staging.raw_events
 ```
 
-Python connects to PostgreSQL through SQLAlchemy.
+The pipeline does not truncate staging on every run.
 
-The staging load runs inside a database transaction and refreshes the staging table before inserting the new dataset.
+Instead, PostgreSQL performs an UPSERT on `event_id`.
 
-PostgreSQL runs inside Docker and uses a persistent Docker volume.
-
----
-
-## 5. ELT with dbt
-
-After the data is loaded into PostgreSQL, transformations are handled by dbt.
-
-The architecture follows an ELT-style workflow:
+An existing event is updated only when:
 
 ```text
-Extract
-   ↓
-Amazon S3
-
-Load
-   ↓
-PostgreSQL staging
-
-Transform
-   ↓
-dbt
+incoming source_updated_at > stored source_updated_at
 ```
 
-### Staging Model
+Example:
+
+```text
+Batch A
+event_id = 1
+home_odds = 1.90
+source_updated_at = 10:00
+
+Batch B
+event_id = 1
+home_odds = 1.95
+source_updated_at = 11:00
+```
+
+After Batch B, replaying Batch A does not overwrite the newer value.
+
+This provides:
+
+- idempotency
+- replay safety
+- incremental ingestion
+- protection against stale source data
+
+## Data Validation and Data Contract
+
+The event contract defines the expected source schema and business requirements.
+
+Required fields include:
+
+```text
+event_id
+sport
+league
+home_team
+away_team
+event_time
+home_odds
+draw_odds
+away_odds
+source_updated_at
+```
+
+Validation includes:
+
+- required columns
+- required non-null values
+- unique `event_id` within a batch
+- different home and away teams
+- valid timestamps
+- numeric betting odds
+- positive betting odds
+- valid `source_updated_at`
+
+Invalid numeric and timestamp values are safely coerced and rejected instead of crashing the pipeline.
+
+## Quarantine Layer
+
+Validation separates incoming records into:
+
+```text
+valid_df
+rejected_df
+```
+
+Valid records continue to PostgreSQL.
+
+Rejected records are written to:
+
+```text
+rejected/events/
+└── ingestion_date=<date>/
+    └── batch_id=<UUID>/
+        └── rejected.json
+```
+
+Each quarantined record preserves:
+
+```text
+original source values
+batch_id
+source_file
+rejection_reason
+```
+
+This prevents bad records from reaching the warehouse while keeping them available for investigation.
+
+## Batch Observability
+
+Pipeline execution metadata is stored in:
+
+```text
+ops.pipeline_runs
+```
+
+The model separates:
+
+```text
+batch_id = identity of the source data
+run_id   = identity of one processing attempt
+```
+
+This allows one batch to have multiple attempts:
+
+```text
+batch-A
+├── run 1 → SUCCESS
+├── run 2 → replay → SUCCESS
+└── run 3 → retry → FAILED
+```
+
+Tracked metrics include:
+
+```text
+source_row_count
+valid_row_count
+rejected_row_count
+inserted_count
+updated_count
+ignored_count
+started_at
+finished_at
+status
+error_message
+```
+
+Metrics are checkpointed during processing, allowing failed runs to retain information already measured before the failure.
+
+The staging UPSERT and final SUCCESS update are executed within the same database transaction to avoid inconsistent execution state.
+
+## dbt Warehouse
+
+After ingestion, dbt transforms staging data into an analytics warehouse.
+
+### Staging
 
 ```text
 analytics.stg_events
 ```
 
-The staging model performs lightweight cleaning and normalization and is materialized as a **view**.
-
-### Warehouse Models
+### Dimensions
 
 ```text
 analytics.dim_team
 analytics.dim_league
 analytics.dim_date
+```
+
+### Fact Table
+
+```text
 analytics.fact_event_odds
 ```
 
-The dimensional models are materialized as PostgreSQL **tables**.
-
----
-
-## 6. Dimensional Data Model
+The fact table contains event-level betting odds and foreign keys to the related dimensions.
 
 ```mermaid
 flowchart LR
@@ -228,153 +279,113 @@ flowchart LR
     AWAY[dim_team - away] --> FACT
 ```
 
-### `fact_event_odds`
+## Automated Data Quality
 
-The central fact table contains:
+The project uses both Python and dbt testing.
 
-```text
-event_id
-date_id
-league_id
-home_team_id
-away_team_id
-event_time
-home_odds
-draw_odds
-away_odds
+### pytest
+
+The current Python suite contains **12 automated tests** covering scenarios including:
+
+- valid event validation
+- negative odds rejection
+- non-numeric odds rejection
+- invalid timestamps
+- missing source version
+- event contract validation
+- idempotent incremental ingestion
+- replay safety
+- quarantine creation
+- valid batches avoiding quarantine
+- successful observability runs
+- failed run error tracking
+
+Run:
+
+```bash
+python -m pytest -v
 ```
 
-### `dim_team`
+### dbt
 
-```text
-team_id
-team_name
-```
-
-### `dim_league`
-
-```text
-league_id
-league_name
-```
-
-### `dim_date`
-
-```text
-date_id
-full_date
-year
-month
-day
-```
-
----
-
-## 7. dbt Testing
-
-The warehouse layer includes automated dbt data-quality tests.
-
-Tests validate:
-
-- `not_null`
-- `unique`
-- relationships between fact and dimension tables
-
-Examples:
-
-```text
-fact_event_odds.date_id
-    → dim_date.date_id
-
-fact_event_odds.league_id
-    → dim_league.league_id
-
-fact_event_odds.home_team_id
-    → dim_team.team_id
-
-fact_event_odds.away_team_id
-    → dim_team.team_id
-```
-
-The current dbt build executes:
+The dbt build executes:
 
 ```text
 4 table models
 1 view model
-20 data tests
-25 total operations
+21 data tests
+26 total operations
+```
+
+Tests include:
+
+- `not_null`
+- `unique`
+- fact-to-dimension relationships
+- positive betting odds
+
+A successful build finishes with:
+
+```text
+PASS=26
+WARN=0
+ERROR=0
+TOTAL=26
 ```
 
 ### Successful dbt Build
 
 ![dbt build success](docs/dbt-build-success.png)
 
----
+## Apache Airflow
 
-## 8. Apache Airflow Orchestration
-
-Apache Airflow orchestrates the complete pipeline through the:
+Airflow orchestrates the pipeline through:
 
 ```text
 sports_data_pipeline
 ```
 
-DAG.
-
 The workflow is:
 
 ```text
-upload_raw_to_s3
+upload raw batch
         ↓
-validate_json
+validate JSON
         ↓
-load_s3_to_postgres
+process batch through shared ingestion flow
         ↓
-dbt_build
+dbt build
 ```
 
-Each task depends on successful completion of the previous task.
+The same ingestion logic is reused by:
 
-The DAG also includes retry handling:
+- manual execution
+- historical replay
+- Airflow
+
+This avoids separate implementations with different behavior.
+
+The DAG includes:
 
 ```text
 retries = 2
 retry_delay = 30 seconds
 ```
 
-This makes the workflow more resilient to temporary failures such as network or service interruptions.
-
 ### Successful Airflow Run
 
 ![Airflow pipeline success](docs/airflow-success.png)
 
-Airflow provides:
+## Continuous Integration
 
-- task dependency management
-- execution monitoring
-- task-level logs
-- retries
-- manual triggering
-- failure visibility
-
----
-
-## 9. Continuous Integration
-
-The project includes a GitHub Actions CI pipeline:
-
-```text
-.github/workflows/ci.yml
-```
-
-The workflow runs automatically on:
+GitHub Actions runs automatically on:
 
 ```text
 push → main
 pull request → main
 ```
 
-### CI Flow
+The CI workflow:
 
 ```text
 Checkout repository
@@ -383,201 +394,118 @@ Set up Python
         ↓
 Install dependencies
         ↓
+Provision PostgreSQL
+        ↓
+Apply database schemas and migrations
+        ↓
 Run pytest
         ↓
-Start temporary PostgreSQL
-        ↓
-Create staging schema
-        ↓
-Load sample data
-        ↓
-Create dbt profile
+Load sample staging data
         ↓
 Run dbt build
 ```
 
-The CI environment creates its own temporary PostgreSQL service, allowing the Python and dbt layers to be validated independently from the developer's local environment.
+The database is provisioned from a clean PostgreSQL service, which verifies that the project does not depend on manually configured local state.
 
 ### GitHub Actions Success
 
 ![GitHub Actions success](docs/github-actions-success.png)
 
----
+## Docker Infrastructure
 
-## 10. Python Testing
-
-Python tests are implemented with `pytest`.
-
-Run:
-
-```bash
-python -m pytest
-```
-
-The current test suite includes scenarios for:
-
-```text
-valid event data → accepted
-negative betting odds → rejected
-```
-
-The project therefore includes multiple quality gates:
-
-```text
-Python validation
-       +
-pytest
-       +
-dbt tests
-       +
-GitHub Actions
-```
-
----
-
-## 11. Logging
-
-The ingestion modules use Python's standard `logging` library.
-
-Example output:
-
-```text
-INFO | Uploaded events.csv to S3
-INFO | Read raw/events/events.csv from S3
-INFO | Loaded events from S3
-INFO | Loaded records into staging.raw_events
-```
-
-Airflow also captures execution logs for each individual pipeline task.
-
----
-
-## 12. Docker Infrastructure
-
-Docker Compose runs the main local infrastructure.
-
-Containers:
+Docker Compose runs:
 
 ```text
 sports_postgres
 sports_airflow
 ```
 
-From the host machine, PostgreSQL is accessed through:
+Host PostgreSQL access:
 
 ```text
 localhost:5433
 ```
 
-Inside Docker, Airflow connects directly to PostgreSQL through the Docker network:
+Container-to-container connection:
 
 ```text
 postgres:5432
 ```
 
-This keeps local host networking separate from container-to-container communication.
+Database initialization automatically applies:
 
----
+```text
+create_staging.sql
+004_pipeline_runs.sql
+005_pipeline_run_attempts.sql
+```
 
 ## Project Structure
 
 ```text
 sports-data-engineering-pipeline/
-│
 ├── .github/
 │   └── workflows/
 │       └── ci.yml
-│
 ├── airflow/
 │   ├── dags/
 │   │   └── sports_pipeline_dag.py
-│   │
 │   └── dbt/
 │       └── profiles.yml
-│
 ├── data/
 │   └── raw/
 │       ├── events.csv
 │       └── events.json
-│
 ├── docs/
 │   ├── airflow-success.png
 │   ├── dbt-build-success.png
 │   ├── github-actions-success.png
 │   └── s3-raw-events.png
-│
 ├── sports_warehouse/
 │   ├── models/
 │   │   ├── staging/
-│   │   │   └── stg_events.sql
-│   │   │
-│   │   ├── marts/
-│   │   │   ├── dim_date.sql
-│   │   │   ├── dim_league.sql
-│   │   │   ├── dim_team.sql
-│   │   │   └── fact_event_odds.sql
-│   │   │
-│   │   ├── schema.yml
-│   │   └── sources.yml
-│   │
-│   └── dbt_project.yml
-│
+│   │   └── marts/
+│   └── tests/
+│       └── assert_positive_event_odds.sql
 ├── sql/
-│   └── create_staging.sql
-│
+│   ├── create_staging.sql
+│   ├── 004_pipeline_runs.sql
+│   └── 005_pipeline_run_attempts.sql
 ├── src/
 │   ├── aws/
-│   │   └── s3_client.py
-│   │
+│   ├── contracts/
+│   │   └── event_contract.py
 │   ├── database/
-│   │   └── connection.py
-│   │
 │   ├── ingestion/
 │   │   ├── load_events.py
-│   │   └── load_json_events.py
-│   │
+│   │   ├── load_json_events.py
+│   │   └── run_batch.py
+│   ├── observability/
+│   │   └── pipeline_runs.py
 │   └── validation/
 │       └── event_validator.py
-│
 ├── tests/
-│   └── test_ingestion.py
-│
+│   ├── test_incremental_ingestion.py
+│   ├── test_ingestion.py
+│   ├── test_observability.py
+│   └── test_quarantine.py
 ├── .env.example
-├── .gitignore
 ├── docker-compose.yml
 ├── Dockerfile.airflow
 ├── requirements.txt
 └── README.md
 ```
 
----
+## Running Locally
 
-# Running Locally
-
-## Prerequisites
-
-Install:
-
-- Python
-- Docker Desktop
-- Git
-- AWS CLI
-
-An AWS account and S3 bucket are also required.
-
----
-
-## 1. Clone the Repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/Kutaba-Victor-30127/sports-data-engineering-pipeline.git
-
 cd sports-data-engineering-pipeline
 ```
 
----
-
-## 2. Create a Virtual Environment
+### 2. Virtual Environment
 
 ```bash
 python -m venv .venv
@@ -589,29 +517,15 @@ Windows PowerShell:
 .\.venv\Scripts\Activate.ps1
 ```
 
----
-
-## 3. Install Dependencies
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
----
+### 3. Environment Configuration
 
-## 4. Configure Environment Variables
-
-Create:
-
-```text
-.env
-```
-
-based on:
-
-```text
-.env.example
-```
+Create `.env` from `.env.example`.
 
 Example:
 
@@ -628,97 +542,57 @@ S3_BUCKET_NAME=your-s3-bucket-name
 AWS_CREDENTIALS_PATH=C:/Users/your-user/.aws
 ```
 
----
+AWS credentials are stored outside the repository.
 
-## 5. Configure AWS CLI
-
-Configure AWS credentials locally:
-
-```bash
-aws configure
-```
-
-Verify authentication:
-
-```bash
-aws sts get-caller-identity
-```
-
-AWS credentials are never stored in this repository.
-
----
-
-## 6. Start Docker Infrastructure
+### 4. Start Infrastructure
 
 ```bash
 docker compose up -d --build
 ```
 
-Verify:
+### 5. Run the Pipeline
 
 ```bash
-docker ps
+python -m src.ingestion.run_batch
 ```
 
-Expected project containers:
+The command:
 
 ```text
-sports_postgres
-sports_airflow
+creates batch metadata
+→ uploads an immutable S3 batch
+→ validates records
+→ quarantines invalid records
+→ incrementally UPSERTs valid records
+→ records execution metrics
 ```
 
----
-
-## 7. Run the Ingestion Pipeline Manually
-
-Upload source data to S3:
+### 6. Replay an Existing Batch
 
 ```bash
-python -m src.aws.s3_client
+python -m src.ingestion.load_events \
+  --s3-key "<existing-s3-key>" \
+  --batch-id "<existing-batch-id>"
 ```
 
-Load CSV data from S3 into PostgreSQL:
+The replay receives a new `run_id` while preserving the original `batch_id`.
+
+### 7. Run Tests
 
 ```bash
-python -m src.ingestion.load_events
+python -m pytest -v
 ```
 
-Process and validate JSON:
-
-```bash
-python -m src.ingestion.load_json_events
-```
-
----
-
-## 8. Run Python Tests
-
-```bash
-python -m pytest
-```
-
----
-
-## 9. Run dbt
+### 8. Run dbt
 
 ```bash
 cd sports_warehouse
-
 dbt build
 ```
 
-A successful build should finish with:
+### 9. Run Airflow
 
-```text
-PASS=25
-ERROR=0
-```
-
----
-
-## 10. Run the Airflow Pipeline
-
-Airflow is available locally at:
+Airflow UI:
 
 ```text
 http://localhost:8082
@@ -730,94 +604,63 @@ Trigger:
 sports_data_pipeline
 ```
 
-The DAG executes:
-
-```text
-upload_raw_to_s3
-        ↓
-validate_json
-        ↓
-load_s3_to_postgres
-        ↓
-dbt_build
-```
-
----
-
 ## Security
 
-The repository does not contain AWS credentials or the local `.env` file.
-
-Security practices used in the project include:
+Security practices include:
 
 - `.env` excluded from Git
 - AWS credentials stored outside the repository
-- `.env.example` containing only configuration templates
+- `.env.example` contains templates only
 - dedicated IAM identity for project access
-- S3 permissions restricted to project resources
-- no AWS root access keys used
-- Docker configuration driven through environment variables
-
----
+- project-scoped S3 permissions
+- no AWS root access keys
+- environment-driven Docker configuration
 
 ## Engineering Concepts Demonstrated
 
-This project demonstrates practical experience with:
-
 - Python data engineering
+- SQL and relational databases
+- ETL / ELT
 - AWS S3
-- boto3
-- structured data
-- semi-structured JSON
-- Pandas
-- ETL / ELT workflows
+- immutable raw data
+- batch processing
+- incremental ingestion
+- UPSERT
+- idempotency
+- replay safety
+- data contracts
+- data validation
+- quarantine patterns
+- batch observability
+- database transactions
 - PostgreSQL
-- SQL
 - SQLAlchemy
-- staging layers
+- Pandas
 - dbt
 - dimensional modelling
 - fact and dimension tables
-- data warehousing
 - data-quality testing
-- Apache Airflow DAGs
-- dependency management
-- retry handling
+- Apache Airflow
+- orchestration and retries
 - Docker
-- Docker networking
-- persistent volumes
 - pytest
 - GitHub Actions
-- CI pipelines
+- CI
 - logging
-- secure environment configuration
-- Git version control
-
----
+- secure configuration
 
 ## Future Improvements
 
-Possible extensions include:
+Potential next steps:
 
-- AWS Glue
-- Amazon Athena
-- Amazon Redshift
-- Apache Spark / PySpark
-- dbt incremental models
-- Airflow scheduling
-- alerting and notifications
-- Terraform infrastructure as code
-- centralized monitoring
-- larger datasets
-- external sports APIs
-- partitioned S3 datasets
-
----
+- reproducible performance benchmark with a larger dataset
+- additional observability metrics and alerting
+- external sports API ingestion
+- BI dashboard on top of the analytics warehouse
+- infrastructure as code
 
 ## Author
 
 **Victor Kutaba**
 
-GitHub: [Kutaba-Victor-30127](https://github.com/Kutaba-Victor-30127)
-
-Repository: [sports-data-engineering-pipeline](https://github.com/Kutaba-Victor-30127/sports-data-engineering-pipeline)
+GitHub: Kutaba-Victor-30127

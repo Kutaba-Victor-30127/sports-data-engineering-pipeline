@@ -1,17 +1,8 @@
 import pandas as pd
-
-REQUIRED_COLUMNS = [
-    "event_id",
-    "sport",
-    "league",
-    "home_team",
-    "away_team",
-    "event_time",
-    "home_odds",
-    "draw_odds",
-    "away_odds",
-    "source_updated_at"
-]
+from src.contracts.event_contract import (
+    ODDS_COLUMNS,
+    REQUIRED_COLUMNS,
+)
 
 def validate_schema(df):
     missing_columns = [
@@ -48,11 +39,7 @@ def partition_events(df):
             df[column],
             errors="coerce",
         )
-        for column in (
-            "home_odds",
-            "draw_odds",
-            "away_odds",
-        )
+        for column in ODDS_COLUMNS
     }
 
     reasons = pd.Series(

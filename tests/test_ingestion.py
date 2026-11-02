@@ -6,6 +6,11 @@ from src.validation.event_validator import (
     validate_events,
 )
 
+from src.contracts.event_contract import (
+    ODDS_COLUMNS,
+    REQUIRED_COLUMNS,
+)
+
 def create_valid_events():
     return pd.DataFrame({
         "event_id": [1, 2],
@@ -87,3 +92,25 @@ def test_invalid_source_updated_at_is_rejected():
         rejected_df.iloc[0]["rejection_reason"]
         == "source_updated_at cannot be null or invalid"
     )
+
+def test_event_contract_contains_required_columns():
+    assert set(REQUIRED_COLUMNS) == {
+        "event_id",
+        "sport",
+        "league",
+        "home_team",
+        "away_team",
+        "event_time",
+        "home_odds",
+        "draw_odds",
+        "away_odds",
+        "source_updated_at",
+    }
+
+
+def test_event_contract_identifies_positive_odds():
+    assert set(ODDS_COLUMNS) == {
+        "home_odds",
+        "draw_odds",
+        "away_odds",
+    }
