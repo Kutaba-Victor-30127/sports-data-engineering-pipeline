@@ -2,9 +2,9 @@
 
 [![CI Pipeline](https://github.com/Kutaba-Victor-30127/sports-data-engineering-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/Kutaba-Victor-30127/sports-data-engineering-pipeline/actions)
 
-End-to-end data engineering pipeline built with **Python, AWS S3, PostgreSQL, dbt, Apache Airflow, Docker, pytest and GitHub Actions**.
+Production-style data engineering project built with **Python, AWS S3, PostgreSQL, dbt, Apache Airflow, Docker, pytest and GitHub Actions**.
 
-The project ingests structured CSV and semi-structured JSON sports-event data, stores immutable raw batches in Amazon S3, validates and quarantines bad records, performs replay-safe incremental UPSERTs into PostgreSQL, builds a dimensional warehouse with dbt, and tracks batch-level execution metrics.
+The pipeline ingests structured CSV and semi-structured JSON sports-event data, stores immutable raw batches in Amazon S3, validates and quarantines invalid records, performs replay-safe incremental UPSERTs into PostgreSQL, builds a dimensional analytics warehouse with dbt, tracks batch execution metrics and includes reproducible ingestion benchmarks.
 
 ## Architecture
 
@@ -25,39 +25,42 @@ flowchart TD
     F --> I[dim_date]
     F --> J[fact_event_odds]
 
-    K[ops.pipeline_runs] --> L[Batch Observability]
+    E --> K[ops.pipeline_runs]
 
-    M[Apache Airflow] --> B
-    M --> D
-    M --> F
+    L[Apache Airflow] --> B
+    L --> D
+    L --> F
 
-    N[GitHub Actions] --> O[pytest]
-    N --> P[PostgreSQL]
-    N --> R[dbt build]
+    M[GitHub Actions] --> N[pytest]
+    M --> O[PostgreSQL]
+    M --> P[dbt build]
 ```
 
 ## Key Engineering Features
 
-- Immutable S3 ingestion batches partitioned by `ingestion_date` and `batch_id`
+- Immutable Amazon S3 raw batches partitioned by `ingestion_date` and `batch_id`
 - Incremental PostgreSQL ingestion using `INSERT ... ON CONFLICT DO UPDATE`
-- Version-aware UPSERTs using `source_updated_at`
-- Replay-safe and idempotent ingestion
-- Row-level data validation and S3 quarantine
+- Version-aware updates using `source_updated_at`
+- Replay-safe and idempotent processing
+- Row-level validation and S3 quarantine for rejected records
 - Centralized event data contract
-- Batch-level observability with `run_id`, row counts and execution status
-- SUCCESS / FAILED execution tracking with error messages
-- Apache Airflow orchestration with retries and task dependencies
-- Dimensional warehouse built with dbt
-- Automated Python and dbt data-quality tests
-- Dockerized local infrastructure
-- GitHub Actions CI with clean PostgreSQL provisioning
+- Batch-level observability using `run_id`
+- Inserted, updated, ignored, valid and rejected row metrics
+- SUCCESS / FAILED execution tracking
+- Transactional staging load and execution-state updates
+- Apache Airflow orchestration
+- Dimensional analytics warehouse built with dbt
+- Automated Python and dbt data-quality testing
+- Dockerized infrastructure
+- GitHub Actions CI
+- Reproducible PostgreSQL ingestion performance benchmarks
 
 ## Tech Stack
 
 | Area | Technologies |
 |---|---|
 | Language | Python |
-| Data Processing | Pandas |
+| Data Processing | pandas |
 | Cloud Storage | AWS S3 |
 | AWS SDK | boto3 |
 | Database | PostgreSQL |
@@ -71,17 +74,17 @@ flowchart TD
 
 ## Immutable S3 Raw Layer
 
-Every ingestion creates a unique batch:
+Each ingestion creates a unique immutable batch:
 
 ```text
 raw/events/
-└── ingestion_date=2026-11-02/
+└── ingestion_date=2026-11-03/
     └── batch_id=<UUID>/
         ├── events.csv
         └── events.json
 ```
 
-The batch metadata contains:
+Batch metadata contains:
 
 ```text
 batch_id
@@ -90,9 +93,9 @@ csv_key
 json_key
 ```
 
-`batch_id` identifies the source batch, while each processing attempt receives its own `run_id`.
+`batch_id` represents the identity of the source data.
 
-This separation allows the same raw batch to be replayed multiple times without losing execution history.
+Each processing attempt receives a separate `run_id`, allowing the same immutable source batch to be replayed or retried without losing execution history.
 
 ### S3 Raw Data
 
@@ -106,11 +109,11 @@ Validated records are loaded into:
 staging.raw_events
 ```
 
-The pipeline does not truncate staging on every run.
+The production ingestion path does not truncate staging on every run.
 
-Instead, PostgreSQL performs an UPSERT on `event_id`.
+Instead, PostgreSQL performs an UPSERT using `event_id` as the conflict key.
 
-An existing event is updated only when:
+An existing record is updated only when:
 
 ```text
 incoming source_updated_at > stored source_updated_at
@@ -120,17 +123,25 @@ Example:
 
 ```text
 Batch A
+
 event_id = 1
 home_odds = 1.90
 source_updated_at = 10:00
+```
 
+A later batch contains:
+
+```text
 Batch B
+
 event_id = 1
 home_odds = 1.95
 source_updated_at = 11:00
 ```
 
-After Batch B, replaying Batch A does not overwrite the newer value.
+Batch B updates the existing event.
+
+If Batch A is replayed afterwards, its older version cannot overwrite the newer value.
 
 This provides:
 
@@ -139,9 +150,9 @@ This provides:
 - incremental ingestion
 - protection against stale source data
 
-## Data Validation and Data Contract
+## Data Validation and Contract
 
-The event contract defines the expected source schema and business requirements.
+The centralized event contract defines the expected input schema and core business rules.
 
 Required fields include:
 
@@ -161,19 +172,21 @@ source_updated_at
 Validation includes:
 
 - required columns
-- required non-null values
-- unique `event_id` within a batch
+- non-null required values
+- unique `event_id` values within the batch
 - different home and away teams
 - valid timestamps
 - numeric betting odds
 - positive betting odds
-- valid `source_updated_at`
+- valid source version timestamps
 
-Invalid numeric and timestamp values are safely coerced and rejected instead of crashing the pipeline.
+Numeric and timestamp values are converted using safe coercion.
+
+Invalid records are rejected instead of crashing the entire batch.
 
 ## Quarantine Layer
 
-Validation separates incoming records into:
+Validation partitions each batch into:
 
 ```text
 valid_df
@@ -191,16 +204,15 @@ rejected/events/
         └── rejected.json
 ```
 
-Each quarantined record preserves:
+Each rejected record preserves metadata including:
 
 ```text
-original source values
 batch_id
 source_file
 rejection_reason
 ```
 
-This prevents bad records from reaching the warehouse while keeping them available for investigation.
+This prevents invalid records from reaching the warehouse while preserving them for investigation.
 
 ## Batch Observability
 
@@ -210,14 +222,14 @@ Pipeline execution metadata is stored in:
 ops.pipeline_runs
 ```
 
-The model separates:
+The observability model separates source identity from execution identity:
 
 ```text
-batch_id = identity of the source data
+batch_id = identity of the source batch
 run_id   = identity of one processing attempt
 ```
 
-This allows one batch to have multiple attempts:
+A single source batch can therefore have multiple attempts:
 
 ```text
 batch-A
@@ -226,7 +238,7 @@ batch-A
 └── run 3 → retry → FAILED
 ```
 
-Tracked metrics include:
+Tracked information includes:
 
 ```text
 source_row_count
@@ -241,15 +253,15 @@ status
 error_message
 ```
 
-Metrics are checkpointed during processing, allowing failed runs to retain information already measured before the failure.
+Counts are checkpointed while the batch is processed, allowing failed executions to retain metrics collected before the failure.
 
-The staging UPSERT and final SUCCESS update are executed within the same database transaction to avoid inconsistent execution state.
+The PostgreSQL staging UPSERT and the final SUCCESS state are committed within the same transaction to avoid inconsistent pipeline state.
 
-## dbt Warehouse
+## dbt Analytics Warehouse
 
-After ingestion, dbt transforms staging data into an analytics warehouse.
+After ingestion, dbt transforms staging records into a dimensional analytics model.
 
-### Staging
+### Staging Model
 
 ```text
 analytics.stg_events
@@ -269,7 +281,7 @@ analytics.dim_date
 analytics.fact_event_odds
 ```
 
-The fact table contains event-level betting odds and foreign keys to the related dimensions.
+The fact table stores event-level betting odds and foreign keys to the related dimensions.
 
 ```mermaid
 flowchart LR
@@ -279,26 +291,26 @@ flowchart LR
     AWAY[dim_team - away] --> FACT
 ```
 
-## Automated Data Quality
+## Automated Testing and Data Quality
 
-The project uses both Python and dbt testing.
+The project uses Python tests for application behavior and dbt tests for warehouse data quality.
 
 ### pytest
 
-The current Python suite contains **12 automated tests** covering scenarios including:
+The current Python test suite contains **12 automated tests** covering scenarios including:
 
 - valid event validation
 - negative odds rejection
 - non-numeric odds rejection
 - invalid timestamps
-- missing source version
+- missing source versions
 - event contract validation
-- idempotent incremental ingestion
-- replay safety
+- incremental ingestion
+- idempotent replay
+- stale-version replay protection
 - quarantine creation
-- valid batches avoiding quarantine
-- successful observability runs
-- failed run error tracking
+- successful observability tracking
+- failed-run error tracking
 
 Run:
 
@@ -308,16 +320,16 @@ python -m pytest -v
 
 ### dbt
 
-The dbt build executes:
+The dbt build currently executes:
 
 ```text
 4 table models
 1 view model
 21 data tests
-26 total operations
+26 total dbt operations
 ```
 
-Tests include:
+Tests cover:
 
 - `not_null`
 - `unique`
@@ -337,9 +349,9 @@ TOTAL=26
 
 ![dbt build success](docs/dbt-build-success.png)
 
-## Apache Airflow
+## Apache Airflow Orchestration
 
-Airflow orchestrates the pipeline through:
+Airflow orchestrates the pipeline using:
 
 ```text
 sports_data_pipeline
@@ -348,22 +360,22 @@ sports_data_pipeline
 The workflow is:
 
 ```text
-upload raw batch
+create and upload immutable batch
         ↓
-validate JSON
+validate source data
         ↓
 process batch through shared ingestion flow
         ↓
-dbt build
+run dbt transformations and tests
 ```
 
-The same ingestion logic is reused by:
+The same ingestion implementation is reused by:
 
 - manual execution
 - historical replay
 - Airflow
 
-This avoids separate implementations with different behavior.
+This avoids separate ingestion implementations with different behavior.
 
 The DAG includes:
 
@@ -385,7 +397,7 @@ push → main
 pull request → main
 ```
 
-The CI workflow:
+The workflow:
 
 ```text
 Checkout repository
@@ -396,7 +408,7 @@ Install dependencies
         ↓
 Provision PostgreSQL
         ↓
-Apply database schemas and migrations
+Apply schemas and migrations
         ↓
 Run pytest
         ↓
@@ -405,15 +417,98 @@ Load sample staging data
 Run dbt build
 ```
 
-The database is provisioned from a clean PostgreSQL service, which verifies that the project does not depend on manually configured local state.
+CI creates PostgreSQL from a clean service instead of relying on manually configured local database state.
 
 ### GitHub Actions Success
 
 ![GitHub Actions success](docs/github-actions-success.png)
 
+## Performance Benchmark
+
+The PostgreSQL incremental ingestion path was benchmarked locally with synthetic datasets of **10,000** and **100,000 sports-event records**.
+
+The benchmark measures the real `load_to_staging()` path, including:
+
+```text
+prepared pandas DataFrame
+        ↓
+existing-version lookup
+        ↓
+insert / update / ignore classification
+        ↓
+SQLAlchemy
+        ↓
+PostgreSQL UPSERT
+```
+
+It intentionally excludes S3 transfer, source validation, Airflow orchestration and dbt execution.
+
+### Results
+
+| Scenario | Rows | Time | Throughput | Inserted | Updated | Ignored |
+|---|---:|---:|---:|---:|---:|---:|
+| Initial load | 10,000 | 7.565 s | 1,322 rows/s | 10,000 | 0 | 0 |
+| Idempotent replay | 10,000 | 8.082 s | 1,237 rows/s | 0 | 0 | 10,000 |
+| 10% incremental update | 10,000 | 7.218 s | 1,385 rows/s | 0 | 1,000 | 9,000 |
+| Initial load | 100,000 | 76.099 s | 1,314 rows/s | 100,000 | 0 | 0 |
+| Idempotent replay | 100,000 | 73.133 s | 1,367 rows/s | 0 | 0 | 100,000 |
+| 10% incremental update | 100,000 | 71.452 s | 1,400 rows/s | 0 | 10,000 | 90,000 |
+
+The benchmark demonstrates approximately stable throughput of **1.2k–1.4k rows/second** when increasing the dataset from 10,000 to 100,000 records.
+
+It also verifies ingestion correctness:
+
+```text
+Initial load
+100,000 new records
+→ 100,000 inserted
+
+Idempotent replay
+same 100,000 records
+→ 0 inserted
+→ 0 updated
+→ 100,000 ignored
+
+10% incremental update
+10,000 newer records
+90,000 unchanged records
+→ 10,000 updated
+→ 90,000 ignored
+```
+
+Benchmark execution is wrapped in a PostgreSQL transaction and rolled back after completion, leaving existing staging data unchanged.
+
+### Run the Benchmark
+
+Start PostgreSQL first:
+
+```bash
+docker compose up -d
+```
+
+Run 10,000 records:
+
+```bash
+python -m benchmarks.benchmark_ingestion --row-count 10000
+```
+
+Run 100,000 records:
+
+```bash
+python -m benchmarks.benchmark_ingestion --row-count 100000
+```
+
+Or benchmark multiple sizes:
+
+```bash
+python -m benchmarks.benchmark_ingestion --row-count 10000 100000
+```
+
+The benchmark is intended to provide reproducible measurements rather than claim end-to-end production throughput.
+
 ## Docker Infrastructure
 
-Docker Compose runs:
+Docker Compose runs the main services:
 
 ```text
 sports_postgres
@@ -426,13 +521,13 @@ Host PostgreSQL access:
 localhost:5433
 ```
 
-Container-to-container connection:
+Container-to-container access:
 
 ```text
 postgres:5432
 ```
 
-Database initialization automatically applies:
+Database initialization applies:
 
 ```text
 create_staging.sql
@@ -452,6 +547,8 @@ sports-data-engineering-pipeline/
 │   │   └── sports_pipeline_dag.py
 │   └── dbt/
 │       └── profiles.yml
+├── benchmarks/
+│   └── benchmark_ingestion.py
 ├── data/
 │   └── raw/
 │       ├── events.csv
@@ -498,14 +595,14 @@ sports-data-engineering-pipeline/
 
 ## Running Locally
 
-### 1. Clone
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/Kutaba-Victor-30127/sports-data-engineering-pipeline.git
 cd sports-data-engineering-pipeline
 ```
 
-### 2. Virtual Environment
+### 2. Create a Virtual Environment
 
 ```bash
 python -m venv .venv
@@ -523,9 +620,9 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
-### 3. Environment Configuration
+### 3. Configure Environment Variables
 
-Create `.env` from `.env.example`.
+Create `.env` using `.env.example`.
 
 Example:
 
@@ -542,7 +639,7 @@ S3_BUCKET_NAME=your-s3-bucket-name
 AWS_CREDENTIALS_PATH=C:/Users/your-user/.aws
 ```
 
-AWS credentials are stored outside the repository.
+AWS credentials remain outside the repository.
 
 ### 4. Start Infrastructure
 
@@ -556,15 +653,20 @@ docker compose up -d --build
 python -m src.ingestion.run_batch
 ```
 
-The command:
+The ingestion flow:
 
 ```text
-creates batch metadata
-→ uploads an immutable S3 batch
-→ validates records
-→ quarantines invalid records
-→ incrementally UPSERTs valid records
-→ records execution metrics
+create batch metadata
+        ↓
+upload immutable S3 batch
+        ↓
+validate records
+        ↓
+quarantine rejected records
+        ↓
+incrementally UPSERT valid records
+        ↓
+record execution metrics
 ```
 
 ### 6. Replay an Existing Batch
@@ -575,9 +677,9 @@ python -m src.ingestion.load_events \
   --batch-id "<existing-batch-id>"
 ```
 
-The replay receives a new `run_id` while preserving the original `batch_id`.
+A replay preserves the original `batch_id` but receives a new `run_id`.
 
-### 7. Run Tests
+### 7. Run Python Tests
 
 ```bash
 python -m pytest -v
@@ -610,7 +712,7 @@ Security practices include:
 
 - `.env` excluded from Git
 - AWS credentials stored outside the repository
-- `.env.example` contains templates only
+- `.env.example` containing templates only
 - dedicated IAM identity for project access
 - project-scoped S3 permissions
 - no AWS root access keys
@@ -622,20 +724,21 @@ Security practices include:
 - SQL and relational databases
 - ETL / ELT
 - AWS S3
-- immutable raw data
+- immutable raw storage
 - batch processing
 - incremental ingestion
-- UPSERT
+- PostgreSQL UPSERT
 - idempotency
 - replay safety
+- source versioning
 - data contracts
-- data validation
+- row-level validation
 - quarantine patterns
 - batch observability
 - database transactions
 - PostgreSQL
 - SQLAlchemy
-- Pandas
+- pandas
 - dbt
 - dimensional modelling
 - fact and dimension tables
@@ -646,6 +749,7 @@ Security practices include:
 - pytest
 - GitHub Actions
 - CI
+- reproducible performance benchmarking
 - logging
 - secure configuration
 
@@ -653,11 +757,11 @@ Security practices include:
 
 Potential next steps:
 
-- reproducible performance benchmark with a larger dataset
-- additional observability metrics and alerting
-- external sports API ingestion
-- BI dashboard on top of the analytics warehouse
-- infrastructure as code
+- optimize large-batch ingestion using PostgreSQL bulk-loading strategies
+- extend pipeline metrics and alerting
+- ingest data from an external sports API
+- build a BI dashboard on top of the analytics warehouse
+- manage cloud infrastructure through Infrastructure as Code
 
 ## Author
 
