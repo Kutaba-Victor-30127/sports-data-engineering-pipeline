@@ -7,7 +7,10 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
 
-from src.database.connection import get_engine
+from src.database.connection import (
+    get_engine,
+    dispose_engines,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -116,6 +119,8 @@ def use_isolated_test_database():
         "POSTGRES_DB"
     )
 
+    dispose_engines()
+
     os.environ["POSTGRES_DB"] = (
         test_db_name
     )
@@ -124,9 +129,14 @@ def use_isolated_test_database():
 
     yield
 
+    dispose_engines()
+
     if original_database is not None:
         os.environ["POSTGRES_DB"] = (
             original_database
         )
-        
-
+    else:
+        os.environ.pop(
+            "POSTGRES_DB",
+            None,
+        )
