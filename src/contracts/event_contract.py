@@ -50,8 +50,26 @@ REQUIRED_COLUMNS = tuple(
 )
 
 
+NON_NULLABLE_COLUMNS = tuple(
+    column
+    for column, rules in EVENT_CONTRACT.items()
+    if rules.get("nullable") is False
+)
+
 ODDS_COLUMNS = tuple(
     column
     for column, rules in EVENT_CONTRACT.items()
     if rules.get("positive") is True
+)
+
+TIMESTAMP_COLUMNS = tuple(
+    column
+    for column, rules in EVENT_CONTRACT.items()
+    if rules.get("type") == "timestamp"
+)
+
+NUMBER_COLUMNS = tuple(
+    column
+    for column, rules in EVENT_CONTRACT.items()
+    if rules.get("type") == "number"
 )

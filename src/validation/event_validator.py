@@ -1,8 +1,13 @@
 import pandas as pd
+
 from src.contracts.event_contract import (
+    NON_NULLABLE_COLUMNS,
+    NUMBER_COLUMNS,
     ODDS_COLUMNS,
     REQUIRED_COLUMNS,
+    TIMESTAMP_COLUMNS,
 )
+
 
 def validate_schema(df):
     missing_columns = [
@@ -12,7 +17,7 @@ def validate_schema(df):
     ]
 
     if missing_columns:
-         raise ValueError(
+        raise ValueError(
             f"Missing required columns: {missing_columns}"
         )
 
@@ -20,32 +25,28 @@ def validate_schema(df):
 def partition_events(df):
     validate_schema(df)
 
-    event_times = pd.to_datetime(
-        df["event_time"],
-        format="ISO8601",
-        errors="coerce",
-        utc=True,
-    )
+    converted_timestamps = {
+        column: pd.to_datetime(
+            df[column],
+            format="ISO8601",
+            errors="coerce",
+            utc=True,
+        )
+        for column in TIMESTAMP_COLUMNS
+    }
 
-    source_versions = pd.to_datetime(
-        df["source_updated_at"],
-        format="ISO8601",
-        errors="coerce",
-        utc=True,
-    )
-
-    numeric_odds = {
+    converted_numbers = {
         column: pd.to_numeric(
             df[column],
             errors="coerce",
         )
-        for column in ODDS_COLUMNS
+        for column in NUMBER_COLUMNS
     }
 
     reasons = pd.Series(
         "",
         index=df.index,
-        dtype="object"
+        dtype="object",
     )
 
     def add_reason(mask, reason):
@@ -54,19 +55,35 @@ def partition_events(df):
         reasons.loc[mask] = (
             current.where(
                 current.eq(""),
-                current + "; "
+                current + "; ",
             )
             + reason
         )
 
-    add_reason(
-        df["event_id"].isnull(),
-        "event_id cannot be null",
-    )
+    for column in NON_NULLABLE_COLUMNS:
+        if column in TIMESTAMP_COLUMNS:
+            invalid = (
+                converted_timestamps[column].isna()
+            )
+
+        elif column in NUMBER_COLUMNS:
+            invalid = (
+                converted_numbers[column].isna()
+            )
+
+        else:
+            invalid = df[column].isnull()
+
+        add_reason(
+            invalid,
+            f"{column} cannot be null or invalid",
+        )
 
     duplicate_event_ids = (
         df["event_id"].notnull()
-        & df["event_id"].duplicated(keep=False)
+        & df["event_id"].duplicated(
+            keep=False
+        )
     )
 
     add_reason(
@@ -74,30 +91,12 @@ def partition_events(df):
         "event_id must be unique within batch",
     )
 
-    add_reason(
-        df["sport"].isnull(),
-        "sport cannot be null",
-    )
-
-    add_reason(
-        df["league"].isnull(),
-        "league cannot be null",
-    )
-
-    add_reason(
-        df["home_team"].isnull(),
-        "home_team cannot be null",
-    )
-
-    add_reason(
-        df["away_team"].isnull(),
-        "away_team cannot be null",
-    )
-
     same_team = (
         df["home_team"].notnull()
         & df["away_team"].notnull()
-        & df["home_team"].eq(df["away_team"])
+        & df["home_team"].eq(
+            df["away_team"]
+        )
     )
 
     add_reason(
@@ -105,19 +104,18 @@ def partition_events(df):
         "home_team and away_team cannot be the same",
     )
 
-    add_reason(
-        event_times.isna(),
-        "event_time cannot be null or invalid",
-    )
+    for column in ODDS_COLUMNS:
+        values = converted_numbers[column]
 
-    for column, values in numeric_odds.items():
         invalid = (
-            values.isna()
-            | values.le(0)
-            | values.isin([
-                float("inf"),
-                float("-inf"),
-            ])
+            values.notna()
+            & (
+                values.le(0)
+                | values.isin([
+                    float("inf"),
+                    float("-inf"),
+                ])
+            )
         )
 
         add_reason(
@@ -125,43 +123,52 @@ def partition_events(df):
             f"{column} must be positive",
         )
 
-    add_reason(
-        source_versions.isna(),
-        "source_updated_at cannot be null or invalid",
-    )
-
     valid_mask = reasons.eq("")
 
-    valid_df = df.loc[valid_mask].copy()
+    valid_df = df.loc[
+        valid_mask
+    ].copy()
 
-    valid_df["event_time"] = (
-        event_times.loc[valid_mask]
-        .dt.tz_localize(None)
-    )
-
-    valid_df["source_updated_at"] = (
-        source_versions.loc[valid_mask]
-    )
-
-    for column, values in numeric_odds.items():
-        valid_df[column] = values.loc[
-            valid_mask
-        ]
-
-    rejected_df = df.loc[~valid_mask].copy()
-    rejected_df["rejection_reason"] = reasons.loc[
+    rejected_df = df.loc[
         ~valid_mask
-    ]
+    ].copy()
+
+    for column in TIMESTAMP_COLUMNS:
+        converted = (
+            converted_timestamps[column]
+            .loc[valid_mask]
+        )
+
+        if column == "event_time":
+            converted = (
+                converted.dt.tz_localize(None)
+            )
+
+        valid_df[column] = converted
+
+    for column in NUMBER_COLUMNS:
+        valid_df[column] = (
+            converted_numbers[column]
+            .loc[valid_mask]
+        )
+
+    rejected_df["rejection_reason"] = (
+        reasons.loc[~valid_mask]
+    )
 
     return valid_df, rejected_df
 
 
 def validate_events(df):
-    valid_df, rejected_df = partition_events(df)
+    valid_df, rejected_df = (
+        partition_events(df)
+    )
 
     if not rejected_df.empty:
         raise ValueError(
-            rejected_df.iloc[0]["rejection_reason"]
+            rejected_df.iloc[0][
+                "rejection_reason"
+            ]
         )
 
     print("Data validation passed.")

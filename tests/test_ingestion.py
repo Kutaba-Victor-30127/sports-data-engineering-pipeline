@@ -7,15 +7,18 @@ from src.validation.event_validator import (
 )
 
 from src.contracts.event_contract import (
+    NON_NULLABLE_COLUMNS,
+    NUMBER_COLUMNS,
     ODDS_COLUMNS,
     REQUIRED_COLUMNS,
+    TIMESTAMP_COLUMNS,
 )
 
 def create_valid_events():
     return pd.DataFrame({
         "event_id": [1, 2],
         "sport": ["football", "football"],
-        "league": ["Premiere League", "La Liga"],
+        "league": ["Premier League", "La Liga"],
         "home_team": ["Arsenal", "Barcelona"],
         "away_team": ["Chelsea", "Valencia"],
         "event_time": pd.to_datetime([
@@ -73,7 +76,7 @@ def test_non_numeric_home_odds_are_rejected():
 
     assert (
         rejected_df.iloc[0]["rejection_reason"]
-        == "home_odds must be positive"
+        == "home_odds cannot be null or invalid"
     )
 
 
@@ -110,6 +113,27 @@ def test_event_contract_contains_required_columns():
 
 def test_event_contract_identifies_positive_odds():
     assert set(ODDS_COLUMNS) == {
+        "home_odds",
+        "draw_odds",
+        "away_odds",
+    }
+
+
+def test_event_contract_identifies_non_nullable_columns():
+    assert set(NON_NULLABLE_COLUMNS) == set(
+        REQUIRED_COLUMNS
+    )
+
+
+def test_event_contract_identifies_timestamp_columns():
+    assert set(TIMESTAMP_COLUMNS) == {
+        "event_time",
+        "source_updated_at",
+    }
+
+
+def test_event_contract_identifies_number_columns():
+    assert set(NUMBER_COLUMNS) == {
         "home_odds",
         "draw_odds",
         "away_odds",
