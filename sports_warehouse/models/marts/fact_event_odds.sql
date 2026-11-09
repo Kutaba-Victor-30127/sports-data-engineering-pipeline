@@ -13,6 +13,12 @@ select
 
     home_odds,
     draw_odds,
-    away_odds
+    away_odds,
+
+    source_file,
+    batch_id,
+    ingested_at,
+    source_updated_at,
+    loaded_at
 
 from {{ ref('stg_events') }}

@@ -102,6 +102,17 @@ jobs:
             -d sports_warehouse \
             -c "\copy staging.raw_events(event_id, sport, league, home_team, away_team, event_time, home_odds, draw_odds, away_odds, source_updated_at) FROM 'data/raw/events.csv' WITH (FORMAT csv, HEADER true);"
 
+          psql \
+            -h localhost \
+            -U sports_user \
+            -d sports_warehouse \
+            -v ON_ERROR_STOP=1 \
+            -c "UPDATE staging.raw_events
+                SET source_file = 'ci/data/raw/events.csv',
+                    batch_id = 'ci-sample-batch'
+                WHERE source_file IS NULL
+                   OR batch_id IS NULL;"
+
       - name: Create dbt profile
         run: |
           mkdir -p ~/.dbt
