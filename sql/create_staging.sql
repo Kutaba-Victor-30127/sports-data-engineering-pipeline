@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS  staging.raw_events(
     source_file Text,
     batch_id Text,
     ingested_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    source_updated_at TIMESTAMPTZ,
+    source_updated_at TIMESTAMPTZ NOT NULL,
 
     CONSTRAINT uq_raw_events_event_id UNIQUE (event_id)
 );  

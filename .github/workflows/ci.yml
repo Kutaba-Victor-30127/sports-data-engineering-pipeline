@@ -75,6 +75,13 @@ jobs:
             -v ON_ERROR_STOP=1 \
             -f sql/005_pipeline_run_attempts.sql
 
+          psql \
+            -h localhost \
+            -U sports_user \
+            -d sports_warehouse \
+            -v ON_ERROR_STOP=1 \
+            -f sql/006_source_updated_at_not_null.sql
+
       - name: Run Python tests
         env:
           POSTGRES_HOST: localhost

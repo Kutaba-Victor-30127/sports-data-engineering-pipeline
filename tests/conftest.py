@@ -83,6 +83,7 @@ def rebuild_test_schema():
             PROJECT_ROOT / "sql" / "create_staging.sql",
             PROJECT_ROOT / "sql" / "004_pipeline_runs.sql",
             PROJECT_ROOT / "sql" / "005_pipeline_run_attempts.sql",
+            PROJECT_ROOT / "sql" / "006_source_updated_at_not_null.sql",
         ]
 
         for sql_file in sql_files:

@@ -16,6 +16,7 @@ services:
       - ./sql/create_staging.sql:/docker-entrypoint-initdb.d/create_staging.sql:ro
       - ./sql/004_pipeline_runs.sql:/docker-entrypoint-initdb.d/004_pipeline_runs.sql:ro
       - ./sql/005_pipeline_run_attempts.sql:/docker-entrypoint-initdb.d/005_pipeline_run_attempts.sql:ro
+      - ./sql/006_source_updated_at_not_null.sql:/docker-entrypoint-initdb.d/006_source_updated_at_not_null.sql:ro
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
