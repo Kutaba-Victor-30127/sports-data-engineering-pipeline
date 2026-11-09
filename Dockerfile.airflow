@@ -3,8 +3,8 @@ FROM apache/airflow:3.3.2-python3.13
 USER airflow
 
 RUN pip install --no-cache-dir \
-    boto3 \
-    pandas \
-    psycopg2-binary \
-    python-dotenv \
-    dbt-postgres \
+    boto3==1.43.75 \
+    pandas==3.0.5 \
+    psycopg2-binary==2.9.13 \
+    python-dotenv==1.2.3 \
+    dbt-postgres==1.11.0
