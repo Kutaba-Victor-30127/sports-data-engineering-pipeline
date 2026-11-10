@@ -7,6 +7,7 @@ from src.validation.event_validator import (
 )
 
 from src.contracts.event_contract import (
+    INTEGER_COLUMNS,
     NON_NULLABLE_COLUMNS,
     NUMBER_COLUMNS,
     ODDS_COLUMNS,
@@ -138,3 +139,35 @@ def test_event_contract_identifies_number_columns():
         "draw_odds",
         "away_odds",
     }
+
+def test_non_numeric_event_id_is_rejected():
+    df = create_valid_events()
+
+    df["event_id"] = df["event_id"].astype("object")
+    df.loc[0, "event_id"] = "not-an-integer"
+
+    valid_df, rejected_df = partition_events(df)
+
+    assert len(valid_df) == 1
+    assert len(rejected_df) == 1
+
+    assert (
+        rejected_df.iloc[0]["rejection_reason"]
+        == "event_id cannot be null or invalid"
+    )
+
+def test_fractional_event_id_is_rejected():
+    df = create_valid_events()
+
+    df["event_id"] = df["event_id"].astype("float64")
+    df.loc[0, "event_id"] = 1.5
+
+    valid_df, rejected_df = partition_events(df)
+
+    assert len(valid_df) == 1
+    assert len(rejected_df) == 1
+
+    assert(
+        rejected_df.iloc[0]["rejection_reason"]
+        == "event_id cannot be null or invalid"
+    )

@@ -50,6 +50,12 @@ REQUIRED_COLUMNS = tuple(
 )
 
 
+INTEGER_COLUMNS = tuple(
+    column
+    for column, rules in EVENT_CONTRACT.items()
+    if rules.get("type") == "integer"
+)
+
 NON_NULLABLE_COLUMNS = tuple(
     column
     for column, rules in EVENT_CONTRACT.items()

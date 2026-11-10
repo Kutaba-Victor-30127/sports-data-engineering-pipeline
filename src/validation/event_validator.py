@@ -1,6 +1,7 @@
 import pandas as pd
 
 from src.contracts.event_contract import (
+    INTEGER_COLUMNS,
     NON_NULLABLE_COLUMNS,
     NUMBER_COLUMNS,
     ODDS_COLUMNS,
@@ -43,6 +44,14 @@ def partition_events(df):
         for column in NUMBER_COLUMNS
     }
 
+    converted_integers = {
+        column: pd.to_numeric(
+            df[column],
+            errors="coerce",
+        )
+        for column in INTEGER_COLUMNS
+    }
+
     reasons = pd.Series(
         "",
         index=df.index,
@@ -71,6 +80,14 @@ def partition_events(df):
                 converted_numbers[column].isna()
             )
 
+        elif column in INTEGER_COLUMNS:
+            values = converted_integers[column]
+
+            invalid = (
+                values.isna()
+                | values.mod(1).ne(0)
+            )
+
         else:
             invalid = df[column].isnull()
 
@@ -79,9 +96,18 @@ def partition_events(df):
             f"{column} cannot be null or invalid",
         )
 
+    event_ids = converted_integers[
+        "event_id"
+    ]
+
+    valid_event_ids = (
+        event_ids.notna()
+        & event_ids.mod(1).eq(0)
+    )
+
     duplicate_event_ids = (
-        df["event_id"].notnull()
-        & df["event_id"].duplicated(
+        valid_event_ids
+        & event_ids.duplicated(
             keep=False
         )
     )
@@ -150,6 +176,13 @@ def partition_events(df):
         valid_df[column] = (
             converted_numbers[column]
             .loc[valid_mask]
+        )
+
+    for column in INTEGER_COLUMNS:
+        valid_df[column] = (
+            converted_integers[column]
+            .loc[valid_mask]
+            .astype("int64")
         )
 
     rejected_df["rejection_reason"] = (

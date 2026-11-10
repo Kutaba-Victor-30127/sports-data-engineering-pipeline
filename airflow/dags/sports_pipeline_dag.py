@@ -23,7 +23,7 @@ with DAG(
 
     @task
     def prepare_batch():
-        from src.ingestion.run_batch import (
+        from src.aws.s3_client import (
             create_batch_metadata,
         )
 
