@@ -97,7 +97,7 @@ def test_successful_run_records_observability(
     )
 
     run_batch(
-        batch=batch
+        batch=batch,
     )
 
     engine = get_engine()
@@ -174,7 +174,7 @@ def test_failed_run_records_error(
         match="simulated ingestion failure",
     ):
         run_batch(
-            batch=batch
+            batch=batch,
         )
 
     engine = get_engine()
@@ -208,6 +208,91 @@ def test_failed_run_records_error(
 
     assert (
         "simulated ingestion failure"
+        in run["error_message"]
+    )
+
+    assert run["finished_at"] is not None
+
+
+def test_upload_failure_is_recorded(
+    monkeypatch,
+):
+    batch_id = (
+        f"{TEST_BATCH_PREFIX}"
+        "upload-failure"
+    )
+
+    batch = {
+        "batch_id": batch_id,
+        "ingestion_date": "2026-11-09",
+        "csv_key": (
+            "raw/events/"
+            "ingestion_date=2026-11-09/"
+            f"batch_id={batch_id}/"
+            "events.csv"
+        ),
+        "json_key": (
+            "raw/events/"
+            "ingestion_date=2026-11-09/"
+            f"batch_id={batch_id}/"
+            "events.json"
+        ),
+    }
+
+    def fail_upload(
+        batch_id,
+        ingestion_date,
+    ):
+        raise RuntimeError(
+            "simulated S3 upload failure"
+        )
+    
+    monkeypatch.setattr(
+        "src.ingestion.run_batch.upload_events_batch",
+        fail_upload,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="simulated S3 upload failure",
+    ):
+        run_batch(
+            batch=batch,
+            upload_needed=True,
+        )
+
+    engine = get_engine()
+
+    with engine.connect() as connection:
+        run = connection.execute(
+            text(
+                """
+                SELECT
+                    source_row_count,
+                    valid_row_count,
+                    rejected_row_count,
+                    status,
+                    error_message,
+                    finished_at
+                FROM ops.pipeline_runs
+                WHERE batch_id = :batch_id
+                ORDER BY run_id DESC
+                LIMIT 1
+                """
+            ),
+            {       
+                "batch_id": batch_id
+            }
+        ).mappings().one()
+
+    assert run["source_row_count"] is None
+    assert run["valid_row_count"] is None
+    assert run["rejected_row_count"] is None
+
+    assert run["status"] == "FAILED"
+
+    assert (
+        "simulated S3 upload failure"
         in run["error_message"]
     )
 

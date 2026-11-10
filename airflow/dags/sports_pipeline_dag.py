@@ -22,42 +22,39 @@ with DAG(
 ) as dag:
 
     @task
-    def upload_raw_batch():
-        from src.aws.s3_client import upload_events_batch
-
-        return upload_events_batch()
-
-    @task
-    def validate_json_batch(batch):
-        from src.ingestion.load_json_events import load_json_events
-
-        load_json_events(
-            s3_key=batch["json_key"]
+    def prepare_batch():
+        from src.ingestion.run_batch import (
+            create_batch_metadata,
         )
 
+        return create_batch_metadata()
+
+    
     @task
-    def load_batch_to_postgres(batch):
-        from src.ingestion.run_batch import run_batch
+    def ingest_batch(batch):
+        from src.ingestion.run_batch import (
+            run_batch,
+        )
 
-        run_batch(batch=batch)
+        return run_batch(
+            batch=batch,
+            upload_needed=True,
+        )
 
+    batch = prepare_batch()
 
-    batch = upload_raw_batch()
-
-    json_validation = validate_json_batch(batch)
-
-    postgres_load = load_batch_to_postgres(batch)
-
-    json_validation >> postgres_load
+    ingestion = ingest_batch(
+        batch
+    )
 
     dbt_build = BashOperator(
         task_id="dbt_build",
         bash_command=(
-            f"cd {PROJECT_ROOT} && "
+            f"cd {PROJECT_ROOT} && " 
             "dbt build "
             "--project-dir sports_warehouse "
-            "--profiles-dir airflow/dbt"
+            "--profiles-dir airflow/dbt  "
         ),
     )
 
-    postgres_load >> dbt_build
+    ingestion >> dbt_build

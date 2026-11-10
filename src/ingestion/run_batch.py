@@ -16,15 +16,24 @@ from src.observability.pipeline_runs import (
     start_pipeline_run,
 )
 
+from src.ingestion.load_json_events import (
+    load_json_events,
+)
+
 
 logger = logging.getLogger(__name__)
 
 
-def run_batch(batch=None):
-    upload_needed = batch is None
-
-    if upload_needed:
+def run_batch(
+    batch=None,
+    upload_needed=None,
+):
+    if batch is None:
         batch = create_batch_metadata()
+        upload_needed = True
+    
+    elif upload_needed is None:
+        upload_needed = False
 
     batch_id = batch["batch_id"]
     source_file = batch["csv_key"]
@@ -45,6 +54,15 @@ def run_batch(batch=None):
             upload_events_batch(
                 batch_id=batch_id,
                 ingestion_date=batch["ingestion_date"],
+            )
+
+        json_key = batch.get(
+            "json_key"
+        )
+
+        if json_key is not None:
+            load_json_events(
+                s3_key=json_key
             )
 
         logger.info(
