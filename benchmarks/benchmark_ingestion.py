@@ -16,7 +16,7 @@ def create_dataset(
     return pd.DataFrame({
         "event_id": range(1, row_count + 1),
 
-        "sport": ["fotball"] * row_count,
+        "sport": ["football"] * row_count,
 
         "league": [
             f"League {(i % 10) + 1}"
@@ -213,7 +213,7 @@ def parse_args():
         default=[10000],
         help=(
             "Dataset sizes to benchmark. "
-            "Example: --rows 10000 100000"
+            "Example: --row-count 10000 100000"
         ),
     )
 

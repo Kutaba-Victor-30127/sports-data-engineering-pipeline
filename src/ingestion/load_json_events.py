@@ -34,11 +34,6 @@ def load_json_events(s3_key):
         utc=True
     )
 
-    df["source_updated_at"] = pd.to_datetime(
-        df["source_updated_at"],
-        utc=True
-    )
-
     validate_events(df)
 
     logger.info(
