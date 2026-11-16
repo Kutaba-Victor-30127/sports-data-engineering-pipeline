@@ -20,6 +20,10 @@ from src.ingestion.load_json_events import (
     load_json_events,
 )
 
+from src.validation.batch_parity import (
+    validate_batch_parity,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +60,14 @@ def run_batch(
                 ingestion_date=batch["ingestion_date"],
             )
 
+        json_df = None
+
         json_key = batch.get(
             "json_key"
         )
 
         if json_key is not None:
-            load_json_events(
+            json_df = load_json_events(
                 s3_key=json_key
             )
 
@@ -77,6 +83,12 @@ def run_batch(
             batch_id=batch_id,
             on_counts=save_counts,
         )
+
+        if json_df is not None:
+            validate_batch_parity(
+                csv_df=valid_df,
+                json_df=json_df,
+            )
 
         with get_engine().begin() as connection:
             load_metrics = load_to_staging(
