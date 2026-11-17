@@ -7,6 +7,7 @@ from src.aws.s3_client import (
 from src.database.connection import get_engine
 from src.ingestion.load_events import (
     load_events,
+    load_to_history,
     load_to_staging,
 )
 from src.observability.pipeline_runs import (
@@ -35,7 +36,7 @@ def run_batch(
     if batch is None:
         batch = create_batch_metadata()
         upload_needed = True
-    
+
     elif upload_needed is None:
         upload_needed = False
 
@@ -91,6 +92,11 @@ def run_batch(
             )
 
         with get_engine().begin() as connection:
+            history_metrics = load_to_history(
+                valid_df,
+                connection=connection,
+            )
+
             load_metrics = load_to_staging(
                 valid_df,
                 connection=connection,
@@ -114,6 +120,17 @@ def run_batch(
                 ],
                 connection=connection,
             )
+
+        logger.info(
+            "History for run %s: %s inserted, %s ignored.",
+            run_id,
+            history_metrics[
+                "history_inserted_count"
+            ],
+            history_metrics[
+                "history_ignored_count"
+            ],
+        )
 
         logger.info(
             "Run %s completed for batch %s.",

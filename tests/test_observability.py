@@ -76,6 +76,17 @@ def test_successful_run_records_observability(
 
         return valid_df, rejected_df
 
+
+    def fake_load_to_history(
+        df,
+        connection=None,
+    ):
+        return {
+            "history_inserted_count": 4,
+            "history_ignored_count": 0,
+        }
+
+
     def fake_load_to_staging(
         df,
         connection=None,
@@ -89,6 +100,11 @@ def test_successful_run_records_observability(
     monkeypatch.setattr(
         "src.ingestion.run_batch.load_events",
         fake_load_events,
+    )
+
+    monkeypatch.setattr(
+        "src.ingestion.run_batch.load_to_history",
+        fake_load_to_history,
     )
 
     monkeypatch.setattr(

@@ -103,6 +103,85 @@ def load_events(
     return valid_df, rejected_df
 
 
+def load_to_history(
+    df,
+    connection=None
+):
+    if df.empty:
+        logger.warning(
+            "No valid records to load into history."
+        )
+
+        return {
+            "history_inserted_count": 0,
+            "history_ignored_count": 0,
+        }
+
+    if connection is None:
+        with get_engine().begin() as connection:
+            return load_to_history(
+                df,
+                connection=connection,
+            )
+
+    metadata = MetaData()
+
+    event_odds_history = Table(
+        "event_odds_history",
+        metadata,
+        schema="staging",
+        autoload_with=connection,
+    )
+
+    records = df.to_dict(
+        orient="records"
+    )
+
+    insert_stmt = (
+        insert(event_odds_history)
+        .on_conflict_do_nothing(
+            index_elements=[
+                event_odds_history.c.event_id,
+                event_odds_history.c.source_updated_at,
+            ]
+        )
+        .returning(
+            event_odds_history.c.history_id
+        )
+    )
+
+    result = connection.execute(
+        insert_stmt,
+        records,
+    )
+
+    inserted_ids = (
+        result.scalars().all()
+    )
+
+    history_inserted_count = len(
+        inserted_ids
+    )
+
+    history_ignored_count = (
+        len(records)
+        - history_inserted_count
+    )
+
+    logger.info(
+        "History inserted: %s, ignored: %s.",
+        history_inserted_count,
+        history_ignored_count,
+    )
+
+    return {
+        "history_inserted_count":
+            history_inserted_count,
+        "history_ignored_count":
+            history_ignored_count,
+    }
+
+
 def load_to_staging(
     df,
     connection=None

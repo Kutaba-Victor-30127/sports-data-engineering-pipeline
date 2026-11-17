@@ -22,3 +22,22 @@ sources:
           - name: away_team
             data_tests:
               - not_null
+
+      - name: event_odds_history
+        columns:
+          - name: history_id
+            data_tests:
+              - unique
+              - not_null
+
+          - name: event_id
+            data_tests:
+              - not_null
+
+          - name: source_updated_at
+            data_tests:
+              - not_null
+
+          - name: batch_id
+            data_tests:
+              - not_null

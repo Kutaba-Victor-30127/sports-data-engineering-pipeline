@@ -87,3 +87,55 @@ models:
               arguments:
                 to: ref('dim_team')
                 field: team_id
+
+  - name: fact_event_odds_history
+    columns:
+
+      - name: history_id
+        data_tests:
+          - unique
+          - not_null
+
+      - name: event_id
+        data_tests:
+          - not_null
+
+      - name: source_updated_at
+        data_tests:
+          - not_null
+
+      - name: source_file
+        data_tests:
+          - not_null
+
+      - name: batch_id
+        data_tests:
+          - not_null
+
+      - name: date_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_id
+
+      - name: league_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_league')
+                field: league_id
+
+      - name: home_team_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id
+
+      - name: away_team_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_id
